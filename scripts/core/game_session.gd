@@ -10,13 +10,16 @@ var level_definitions: Array[Dictionary] = []
 var shop_offers: Array[String] = []
 var shop_free_refreshes: int = 0
 var shop_refresh_count: int = 0
+var shop_weight_bonuses: Dictionary = {}
 var map_offers: Array[Dictionary] = []
 var selected_map_offer: Dictionary = {}
 var map_selection_pending: bool = false
 var shop_completed: bool = false
+var gate_pity_streak: int = 0
 
 const SAVE_PATH := "user://run_save.json"
 const GATE_PATH_X := -187.0
+const GATE_OPTION_XS := [-250.0, -100.0]
 const MONSTER_PATH_X := 187.0
 
 const LEVEL_DEFINITIONS: Array[Dictionary] = [
@@ -41,10 +44,12 @@ func start_new_game(persist: bool = true) -> void:
 	shop_offers = []
 	shop_free_refreshes = 0
 	shop_refresh_count = 0
+	shop_weight_bonuses = {}
 	map_offers = []
 	selected_map_offer = _default_map_offer(0)
 	map_selection_pending = false
 	shop_completed = false
+	gate_pity_streak = 0
 	if persist:
 		save_game()
 
@@ -70,6 +75,14 @@ func load_saved_game() -> bool:
 			shop_offers.append(role_id)
 	shop_free_refreshes = maxi(0, int(parsed.get("shop_free_refreshes", 0)))
 	shop_refresh_count = maxi(0, int(parsed.get("shop_refresh_count", 0)))
+	shop_weight_bonuses = {}
+	for role_id in parsed.get("shop_weight_bonuses", {}):
+		var bonus_data = parsed.get("shop_weight_bonuses", {}).get(role_id, {})
+		if role_id is String and RunState.ROLE_IDS.has(role_id) and bonus_data is Dictionary:
+			var amount := maxi(0, int(bonus_data.get("amount", 0)))
+			var nodes_left := maxi(0, int(bonus_data.get("nodes_left", 0)))
+			if amount > 0 and nodes_left > 0:
+				shop_weight_bonuses[role_id] = {"amount": amount, "nodes_left": nodes_left}
 	map_offers = []
 	for map_offer in parsed.get("map_offers", []):
 		if map_offer is Dictionary:
@@ -79,6 +92,7 @@ func load_saved_game() -> bool:
 		selected_map_offer = _default_map_offer(current_level_index)
 	map_selection_pending = bool(parsed.get("map_selection_pending", false))
 	shop_completed = bool(parsed.get("shop_completed", false))
+	gate_pity_streak = maxi(0, int(parsed.get("gate_pity_streak", 0)))
 	if map_selection_pending and map_offers.is_empty():
 		_roll_map_offers()
 	return true
@@ -98,10 +112,12 @@ func save_game() -> void:
 		"shop_offers": shop_offers.duplicate(),
 		"shop_free_refreshes": shop_free_refreshes,
 		"shop_refresh_count": shop_refresh_count,
+		"shop_weight_bonuses": shop_weight_bonuses.duplicate(true),
 		"map_offers": map_offers.duplicate(true),
 		"selected_map_offer": selected_map_offer.duplicate(true),
 		"map_selection_pending": map_selection_pending,
 		"shop_completed": shop_completed,
+		"gate_pity_streak": gate_pity_streak,
 	}))
 
 
@@ -140,6 +156,7 @@ func has_next_level() -> bool:
 
 func complete_current_level() -> void:
 	if has_next_level():
+		_advance_shop_weight_bonuses()
 		current_level_index += 1
 		unlocked_level_index = maxi(unlocked_level_index, current_level_index)
 		selected_map_offer = {}
@@ -191,6 +208,35 @@ func mark_shop_completed() -> void:
 	save_game()
 
 
+func apply_shop_weight_offer(role_id: String) -> bool:
+	if not is_shop_offer(role_id):
+		return false
+	var before := run_state.weight_for(role_id)
+	if not run_state.increase_weight(role_id, game_config.shop_weight_step, game_config.shop_weight_cap):
+		return false
+	var applied := run_state.weight_for(role_id) - before
+	if applied <= 0:
+		return false
+	var bonus_data: Dictionary = shop_weight_bonuses.get(role_id, {"amount": 0, "nodes_left": 0})
+	shop_weight_bonuses[role_id] = {
+		"amount": int(bonus_data.get("amount", 0)) + applied,
+		"nodes_left": maxi(2, int(bonus_data.get("nodes_left", 0))),
+	}
+	return true
+
+
+func _advance_shop_weight_bonuses() -> void:
+	for role_id in shop_weight_bonuses.keys().duplicate():
+		var bonus_data: Dictionary = shop_weight_bonuses[role_id]
+		var nodes_left := int(bonus_data.get("nodes_left", 0)) - 1
+		if nodes_left <= 0:
+			run_state.decrease_weight(str(role_id), int(bonus_data.get("amount", 0)))
+			shop_weight_bonuses.erase(role_id)
+		else:
+			bonus_data["nodes_left"] = nodes_left
+			shop_weight_bonuses[role_id] = bonus_data
+
+
 func select_map(map_index: int, persist: bool = true) -> bool:
 	if not has_map_selection() or map_index < 0 or map_index >= map_offers.size():
 		return false
@@ -215,18 +261,43 @@ func build_gate_rows() -> Array[Dictionary]:
 		rows.append(_row(420.0, [
 			_gate(GATE_PATH_X, RunState.WARRIOR, game_config.required_parts - 1),
 		]))
+	var pity_streak := gate_pity_streak
 	for distance in [820.0, 1220.0, 1580.0]:
-		rows.append(_random_row(float(distance), rng))
+		var row := _random_row(float(distance), rng, pity_streak)
+		rows.append(row)
+		pity_streak = 0 if bool(row.get("contains_priority", false)) else pity_streak + 1
+	gate_pity_streak = pity_streak
 	return rows
 
 
-func _random_row(distance: float, rng: RandomNumberGenerator) -> Dictionary:
+func _random_row(distance: float, rng: RandomNumberGenerator, pity_streak: int = 0) -> Dictionary:
 	var options: Array[Dictionary] = []
 	var used_roles: Array[String] = []
-	var role_id := _weighted_unused_role(used_roles, rng)
-	var part_value := _random_part_value(rng)
-	options.append(_gate(GATE_PATH_X, role_id, part_value))
-	return _row(distance, options)
+	var priority_role := _highest_weight_role()
+	var force_priority := pity_streak >= 3
+	var first_role := priority_role if force_priority else _weighted_unused_role(used_roles, rng)
+	used_roles.append(first_role)
+	var second_role := _weighted_unused_role(used_roles, rng)
+	var first_value := _random_part_value(rng)
+	var second_value := _random_part_value(rng)
+	var guard := 0
+	while second_value == first_value and guard < 8:
+		second_value = _random_part_value(rng)
+		guard += 1
+	options.append(_gate(GATE_OPTION_XS[0], first_role, first_value))
+	options.append(_gate(GATE_OPTION_XS[1], second_role, second_value))
+	return {"distance": distance, "options": options, "contains_priority": first_role == priority_role or second_role == priority_role}
+
+
+func _highest_weight_role() -> String:
+	var best_role := RunState.WARRIOR
+	var best_weight := -1
+	for role_id in RunState.ROLE_IDS:
+		var role_weight := run_state.weight_for(role_id)
+		if role_weight > best_weight:
+			best_weight = role_weight
+			best_role = role_id
+	return best_role
 
 
 func begin_shop() -> void:

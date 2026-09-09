@@ -130,6 +130,13 @@ func increase_weight(role_id: String, step: int, cap: int) -> bool:
 	return true
 
 
+func decrease_weight(role_id: String, step: int) -> bool:
+	if not RoleCatalogScript.is_valid(role_id):
+		return false
+	weights[role_id] = maxi(1, weight_for(role_id) - maxi(0, step))
+	return true
+
+
 func part_count(role_id: String) -> int:
 	return int(parts.get(role_id, 0))
 

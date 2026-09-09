@@ -33,10 +33,38 @@ func _init() -> void:
 	for option in gate_rows[0].get("options", []):
 		lane_xs.append(float(option.get("x", 999.0)))
 	_expect(lane_xs == [-187.0], "tutorial gate stays on the left gate path")
-	for row in gate_rows:
-		_expect(row.get("options", []).size() == 1, "every gate row has one left-path gate")
+	for row_index in range(1, gate_rows.size()):
+		var options: Array = gate_rows[row_index].get("options", [])
+		_expect(options.size() == 2, "every encounter row has two left-path gate choices")
+		if options.size() == 2:
+			_expect(options[0].get("role_id") != options[1].get("role_id"), "gate choices use different professions")
+			_expect(options[0].get("part_value") != options[1].get("part_value"), "gate choices use different values")
+			_expect(options[0].get("x") != options[1].get("x"), "gate choices occupy separate lanes")
+	session.run_state.weights["warrior"] = 60
+	session.run_state.weights["archer"] = 1
+	session.run_state.weights["shield"] = 1
+	session.run_state.weights["mage"] = 1
+	session.gate_pity_streak = 3
+	var pity_rows := session.build_gate_rows()
+	_expect(pity_rows[1].get("contains_priority", false) and (pity_rows[1].get("options", [])[0].get("role_id") == "warrior" or pity_rows[1].get("options", [])[1].get("role_id") == "warrior"), "fourth gate group guarantees highest-weight profession")
 	session.begin_shop()
 	_expect(session.shop_offers.size() == 3, "shop rolls three profession emblems")
+	var offered_role: String = ""
+	for candidate in session.shop_offers:
+		if session.run_state.weight_for(candidate) < session.game_config.shop_weight_cap:
+			offered_role = candidate
+			break
+	_expect(not offered_role.is_empty(), "shop includes a role below the weight cap")
+	var weight_before: int = session.run_state.weight_for(offered_role)
+	_expect(session.apply_shop_weight_offer(offered_role), "shop offer applies temporary weight")
+	_expect(session.run_state.weight_for(offered_role) > weight_before and int(session.shop_weight_bonuses.get(offered_role, {}).get("nodes_left", 0)) == 2, "shop weight bonus lasts two nodes")
+	var bonus_after_purchase: int = session.run_state.weight_for(offered_role)
+	session.complete_current_level()
+	_expect(session.run_state.weight_for(offered_role) == bonus_after_purchase and int(session.shop_weight_bonuses.get(offered_role, {}).get("nodes_left", 0)) == 1, "shop weight bonus survives first node")
+	session.complete_current_level()
+	_expect(session.run_state.weight_for(offered_role) == weight_before and not session.shop_weight_bonuses.has(offered_role), "shop weight bonus expires after second node")
+	session.current_level_index = 0
+	session.map_selection_pending = false
 	var currency_before: int = session.run_state.currency
 	session.run_state.add_currency(1)
 	var free_before: int = session.shop_free_refreshes

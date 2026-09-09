@@ -7,7 +7,7 @@ signal activated(role_id: String, part_value: int)
 var role_id: String = RunState.WARRIOR
 var part_value: int = 1
 var was_used: bool = false
-var gate_size := Vector2(150.0, 68.0)
+var gate_size := Vector2(120.0, 68.0)
 var text_label: Label
 var preview_data: Dictionary = {}
 
@@ -35,7 +35,7 @@ func _ready() -> void:
 	text_label.size = Vector2(gate_size.x, 60.0)
 	text_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	text_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
-	text_label.add_theme_font_size_override("font_size", 15)
+	text_label.add_theme_font_size_override("font_size", 13)
 	text_label.add_theme_color_override("font_color", Color("202020"))
 	text_label.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	add_child(text_label)

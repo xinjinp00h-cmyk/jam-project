@@ -12,6 +12,7 @@ var can_move: bool = true
 var attack_interval: float = 1.0
 var attack_elapsed: float = 0.0
 var active_role_counts: Dictionary = {}
+var part_progress: Dictionary = {}
 var touch_axis: float = 0.0
 
 const ROLE_TEXTURES := {
@@ -48,6 +49,7 @@ func stop() -> void:
 func set_active_roles(run_state: RunState) -> void:
 	for role_id in RoleCatalogScript.ROLE_IDS:
 		active_role_counts[role_id] = run_state.active_count(role_id)
+		part_progress[role_id] = run_state.part_count(role_id)
 	queue_redraw()
 
 
@@ -101,3 +103,14 @@ func _draw() -> void:
 				draw_circle(companion_position, 10.0, RoleCatalogScript.color(role_id))
 				draw_circle(companion_position, 10.0, Color("202020"), false, 2.0)
 			slot += 1
+	# Five colored sockets make each role's head/body/hands/feet progress visible
+	# without adding a separate HUD panel to the narrow playfield.
+	for role_index in RoleCatalogScript.ROLE_IDS.size():
+		var role_id: String = RoleCatalogScript.ROLE_IDS[role_index]
+		var origin := Vector2(-124.0 + role_index * 82.0, -58.0)
+		var filled := int(part_progress.get(role_id, 0))
+		for part_index in 5:
+			var socket := origin + Vector2(part_index * 11.0, 0.0)
+			var socket_color := RoleCatalogScript.color(role_id) if part_index < filled else Color("354044")
+			draw_circle(socket, 4.0, socket_color)
+			draw_circle(socket, 4.0, Color("172326"), false, 1.0)

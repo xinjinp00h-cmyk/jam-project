@@ -56,6 +56,7 @@ func _start_current_level() -> void:
 	choosing_level = false
 	level.visible = true
 	level.load_definition(session.current_level_definition(), session.run_state, session.game_config, session.build_gate_rows())
+	session.save_game()
 	state_machine.transition_to(GameStateMachine.State.PLAYING)
 	hud.show_running()
 
@@ -81,7 +82,8 @@ func _on_shop_selected(role_id: String) -> void:
 		return
 	if not session.is_shop_offer(role_id):
 		return
-	session.run_state.increase_weight(role_id, session.game_config.shop_weight_step, session.game_config.shop_weight_cap)
+	if not session.apply_shop_weight_offer(role_id):
+		return
 	session.mark_shop_completed()
 	hud.show_map_select(session.map_offers)
 
