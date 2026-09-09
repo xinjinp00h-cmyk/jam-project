@@ -5,6 +5,7 @@ const RoleCatalogScript = preload("res://scripts/core/role_catalog.gd")
 signal shop_selected(role_id: String)
 signal shop_refresh_requested
 signal level_selected(level_index: int)
+signal map_selected(map_index: int)
 
 var level_label: Label
 var title_label: Label
@@ -19,6 +20,7 @@ var shop_panel: Control
 var shop_buttons: Dictionary = {}
 var shop_refresh_button: Button
 var level_panel: Control
+var level_panel_title: Label
 var mobile_left_button: Button
 var mobile_right_button: Button
 var playfield_frame: Panel
@@ -408,10 +410,10 @@ func _build_level_select(overlay: Control) -> void:
 	backdrop.color = Color("202020", 0.97)
 	backdrop.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	level_panel.add_child(backdrop)
-	var title := _make_label(Vector2.ZERO, Vector2(480.0, 36.0), 27, Color("f2f2f2"))
-	title.text = "选择节点"
-	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	level_panel.add_child(title)
+	level_panel_title = _make_label(Vector2.ZERO, Vector2(480.0, 36.0), 27, Color("f2f2f2"))
+	level_panel_title.text = "选择节点"
+	level_panel_title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	level_panel.add_child(level_panel_title)
 
 
 func show_level_select(unlocked_index: int, definitions: Array[Dictionary]) -> void:
@@ -419,6 +421,7 @@ func show_level_select(unlocked_index: int, definitions: Array[Dictionary]) -> v
 	hint_label.visible = false
 	shop_panel.visible = false
 	level_panel.visible = true
+	level_panel_title.text = "选择节点"
 	playfield_frame.visible = false
 	if sidebar != null:
 		sidebar.visible = false
@@ -435,8 +438,38 @@ func show_level_select(unlocked_index: int, definitions: Array[Dictionary]) -> v
 		level_panel.add_child(button)
 
 
+func show_map_select(offers: Array[Dictionary]) -> void:
+	message_label.visible = false
+	hint_label.visible = false
+	shop_panel.visible = false
+	level_panel.visible = true
+	level_panel_title.text = "选择下一张地图"
+	playfield_frame.visible = false
+	if sidebar != null:
+		sidebar.visible = false
+	_set_status_chips_visible(false)
+	_set_mobile_controls_visible(false)
+	for child in level_panel.get_children():
+		if child is Button:
+			child.queue_free()
+	for index in offers.size():
+		var offer: Dictionary = offers[index]
+		var hp_bonus := int(offer.get("hp_bonus_percent", 0))
+		var currency_bonus := int(offer.get("currency_bonus_percent", 0))
+		var button := _make_button(Vector2(14.0 + index * 154.0, 70.0), str(offer.get("title", "地图")))
+		button.size = Vector2(140.0, 70.0)
+		button.text = "%s\n怪物生命 +%d%%\n星币掉落 +%d%%" % [str(offer.get("title", "地图")), hp_bonus, currency_bonus]
+		button.add_theme_font_size_override("font_size", 13)
+		button.pressed.connect(_on_map_button_pressed.bind(index))
+		level_panel.add_child(button)
+
+
 func _on_level_button_pressed(level_index: int) -> void:
 	level_selected.emit(level_index)
+
+
+func _on_map_button_pressed(map_index: int) -> void:
+	map_selected.emit(map_index)
 
 
 func _make_label(label_position: Vector2, label_size: Vector2, font_size: int, color: Color) -> Label:

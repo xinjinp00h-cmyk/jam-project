@@ -23,11 +23,21 @@ func _ready() -> void:
 	hud.shop_selected.connect(_on_shop_selected)
 	hud.shop_refresh_requested.connect(_on_shop_refresh_requested)
 	hud.level_selected.connect(_on_level_selected)
+	hud.map_selected.connect(_on_map_selected)
 	level.run_state_changed.connect(_on_run_state_changed)
 	if session.load_saved_game():
 		choosing_level = true
 		level.visible = false
-		hud.show_level_select(session.unlocked_level_index, session.level_definitions)
+		state_machine.transition_to(GameStateMachine.State.LEVEL_COMPLETE if session.map_selection_pending else GameStateMachine.State.READY)
+		if session.map_selection_pending:
+			if not session.shop_completed and session.shop_offers.is_empty():
+				session.begin_shop()
+			if session.shop_completed:
+				hud.show_map_select(session.map_offers)
+			else:
+				hud.show_shop(session.run_state, session.game_config, session.shop_offers, session.shop_free_refreshes)
+		else:
+			hud.show_level_select(session.unlocked_level_index, session.level_definitions)
 	else:
 		session.start_new_game()
 		_start_current_level()
@@ -54,7 +64,7 @@ func _on_level_completed() -> void:
 	if not state_machine.is_in(GameStateMachine.State.PLAYING):
 		return
 	level.stop_run()
-	session.run_state.add_currency(session.game_config.wave_clear_currency)
+	session.run_state.add_currency(session.currency_amount(session.game_config.wave_clear_currency))
 	if session.has_next_level():
 		session.complete_current_level()
 		session.begin_shop()
@@ -72,8 +82,8 @@ func _on_shop_selected(role_id: String) -> void:
 	if not session.is_shop_offer(role_id):
 		return
 	session.run_state.increase_weight(role_id, session.game_config.shop_weight_step, session.game_config.shop_weight_cap)
-	session.save_game()
-	_start_current_level()
+	session.mark_shop_completed()
+	hud.show_map_select(session.map_offers)
 
 
 func _on_shop_refresh_requested() -> void:
@@ -93,10 +103,17 @@ func _on_level_failed() -> void:
 
 
 func _on_level_selected(level_index: int) -> void:
-	if not choosing_level:
+	if not choosing_level or session.map_selection_pending:
 		return
 	session.select_level(level_index)
 	_start_current_level()
+
+
+func _on_map_selected(map_index: int) -> void:
+	if not state_machine.is_in(GameStateMachine.State.LEVEL_COMPLETE):
+		return
+	if session.select_map(map_index):
+		_start_current_level()
 
 
 func _on_run_state_changed() -> void:

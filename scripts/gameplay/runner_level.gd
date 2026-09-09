@@ -36,6 +36,7 @@ func load_definition(definition: Dictionary, new_run_state: RunState, runtime_co
 	run_state = new_run_state
 	game_config = runtime_config
 	total_distance = float(definition.get("distance", 1800.0))
+	set_meta("currency_bonus_percent", int(definition.get("currency_bonus_percent", 0)))
 	wave_duration_seconds = maxf(1.0, game_config.wave_duration_seconds)
 	travel_speed = total_distance / wave_duration_seconds
 	player = RunnerPlayer.new()
@@ -154,7 +155,9 @@ func _spawn_barrels() -> void:
 func _on_enemy_defeated(_enemy: BasicEnemy) -> void:
 	if run_state == null:
 		return
-	run_state.add_currency(game_config.enemy_kill_currency)
+	var currency_bonus := int(get_meta("currency_bonus_percent", 0))
+	var reward := roundi(float(game_config.enemy_kill_currency) * (1.0 + float(currency_bonus) / 100.0))
+	run_state.add_currency(reward)
 	run_state_changed.emit()
 
 
@@ -172,7 +175,9 @@ func _on_enemy_reached_bottom(enemy: BasicEnemy) -> void:
 func _on_barrel_broken(barrel: RewardBarrel) -> void:
 	if run_state == null:
 		return
-	run_state.add_currency(game_config.barrel_currency)
+	var currency_bonus := int(get_meta("currency_bonus_percent", 0))
+	var reward := roundi(float(game_config.barrel_currency) * (1.0 + float(currency_bonus) / 100.0))
+	run_state.add_currency(reward)
 	# Barrels restore one part of the role they display, then award a star.
 	run_state.apply_gate(barrel.role_id, 1)
 	player.set_active_roles(run_state)

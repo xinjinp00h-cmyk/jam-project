@@ -26,6 +26,10 @@ var enemy_kill_currency: int = 1
 var barrel_currency: int = 1
 var shop_refresh_cost: int = 1
 var shop_free_refreshes: int = 1
+var map_hp_bonus_min_percent: int = 0
+var map_hp_bonus_max_percent: int = 35
+var map_currency_bonus_min_percent: int = 0
+var map_currency_bonus_max_percent: int = 50
 
 
 static func load_runtime() -> GameConfig:
@@ -57,4 +61,8 @@ static func load_runtime() -> GameConfig:
 	result.barrel_currency = maxi(0, int(config.get_value("currency", "barrel", result.barrel_currency)))
 	result.shop_refresh_cost = maxi(1, int(config.get_value("shop", "refresh_cost", result.shop_refresh_cost)))
 	result.shop_free_refreshes = maxi(0, int(config.get_value("shop", "free_refreshes", result.shop_free_refreshes)))
+	result.map_hp_bonus_min_percent = maxi(0, int(config.get_value("maps", "hp_bonus_min_percent", result.map_hp_bonus_min_percent)))
+	result.map_hp_bonus_max_percent = maxi(result.map_hp_bonus_min_percent, int(config.get_value("maps", "hp_bonus_max_percent", result.map_hp_bonus_max_percent)))
+	result.map_currency_bonus_min_percent = maxi(0, int(config.get_value("maps", "currency_bonus_min_percent", result.map_currency_bonus_min_percent)))
+	result.map_currency_bonus_max_percent = maxi(result.map_currency_bonus_min_percent, int(config.get_value("maps", "currency_bonus_max_percent", result.map_currency_bonus_max_percent)))
 	return result

@@ -10,6 +10,10 @@ var level_definitions: Array[Dictionary] = []
 var shop_offers: Array[String] = []
 var shop_free_refreshes: int = 0
 var shop_refresh_count: int = 0
+var map_offers: Array[Dictionary] = []
+var selected_map_offer: Dictionary = {}
+var map_selection_pending: bool = false
+var shop_completed: bool = false
 
 const SAVE_PATH := "user://run_save.json"
 const GATE_PATH_X := -187.0
@@ -37,6 +41,10 @@ func start_new_game(persist: bool = true) -> void:
 	shop_offers = []
 	shop_free_refreshes = 0
 	shop_refresh_count = 0
+	map_offers = []
+	selected_map_offer = _default_map_offer(0)
+	map_selection_pending = false
+	shop_completed = false
 	if persist:
 		save_game()
 
@@ -62,6 +70,17 @@ func load_saved_game() -> bool:
 			shop_offers.append(role_id)
 	shop_free_refreshes = maxi(0, int(parsed.get("shop_free_refreshes", 0)))
 	shop_refresh_count = maxi(0, int(parsed.get("shop_refresh_count", 0)))
+	map_offers = []
+	for map_offer in parsed.get("map_offers", []):
+		if map_offer is Dictionary:
+			map_offers.append(map_offer.duplicate(true))
+	selected_map_offer = parsed.get("selected_map_offer", {}).duplicate(true) if parsed.get("selected_map_offer", {}) is Dictionary else {}
+	if selected_map_offer.is_empty():
+		selected_map_offer = _default_map_offer(current_level_index)
+	map_selection_pending = bool(parsed.get("map_selection_pending", false))
+	shop_completed = bool(parsed.get("shop_completed", false))
+	if map_selection_pending and map_offers.is_empty():
+		_roll_map_offers()
 	return true
 
 
@@ -79,6 +98,10 @@ func save_game() -> void:
 		"shop_offers": shop_offers.duplicate(),
 		"shop_free_refreshes": shop_free_refreshes,
 		"shop_refresh_count": shop_refresh_count,
+		"map_offers": map_offers.duplicate(true),
+		"selected_map_offer": selected_map_offer.duplicate(true),
+		"map_selection_pending": map_selection_pending,
+		"shop_completed": shop_completed,
 	}))
 
 
@@ -93,7 +116,14 @@ func select_level(level_index: int, persist: bool = true) -> void:
 
 
 func current_level_definition() -> Dictionary:
-	return level_definitions[current_level_index]
+	var definition: Dictionary = level_definitions[current_level_index].duplicate(true)
+	if not selected_map_offer.is_empty() and int(selected_map_offer.get("stage_index", current_level_index)) == current_level_index:
+		definition["title"] = str(selected_map_offer.get("title", definition.get("title", "地图")))
+		var hp_bonus := int(selected_map_offer.get("hp_bonus_percent", 0))
+		definition["enemy_hp"] = maxi(1, roundi(float(definition.get("enemy_hp", 1)) * (1.0 + float(hp_bonus) / 100.0)))
+		definition["hp_bonus_percent"] = hp_bonus
+		definition["currency_bonus_percent"] = int(selected_map_offer.get("currency_bonus_percent", 0))
+	return definition
 
 
 func level_number() -> int:
@@ -112,7 +142,69 @@ func complete_current_level() -> void:
 	if has_next_level():
 		current_level_index += 1
 		unlocked_level_index = maxi(unlocked_level_index, current_level_index)
+		selected_map_offer = {}
+		map_selection_pending = true
+		shop_completed = false
+		_roll_map_offers()
 	save_game()
+
+
+func _default_map_offer(stage_index: int) -> Dictionary:
+	var definition: Dictionary = LEVEL_DEFINITIONS[clampi(stage_index, 0, LEVEL_DEFINITIONS.size() - 1)]
+	return {
+		"map_id": "%s_default" % str(definition.get("id", "stage")),
+		"stage_index": clampi(stage_index, 0, LEVEL_DEFINITIONS.size() - 1),
+		"title": str(definition.get("title", "地图")),
+		"kind": str(definition.get("kind", "normal")),
+		"hp_bonus_percent": 0,
+		"currency_bonus_percent": 0,
+	}
+
+
+func _roll_map_offers() -> void:
+	map_offers = []
+	var rng := RandomNumberGenerator.new()
+	rng.seed = random_seed + current_level_index * 1543 + 9176
+	var definition: Dictionary = LEVEL_DEFINITIONS[current_level_index]
+	var map_names := ["晨雾回廊", "蓝晶矿道", "风暴高地", "熔岩祭坛", "星辉庭院"]
+	for index in 3:
+		var hp_bonus := rng.randi_range(game_config.map_hp_bonus_min_percent, game_config.map_hp_bonus_max_percent)
+		var currency_bonus := rng.randi_range(game_config.map_currency_bonus_min_percent, game_config.map_currency_bonus_max_percent)
+		map_offers.append({
+			"map_id": "%s_%d_%d" % [str(definition.get("id", "stage")), current_level_index, index],
+			"stage_index": current_level_index,
+			"title": "%s · %s" % [str(definition.get("title", "地图")), map_names[(current_level_index + index) % map_names.size()]],
+			"kind": str(definition.get("kind", "normal")),
+			"hp_bonus_percent": hp_bonus,
+			"currency_bonus_percent": currency_bonus,
+		})
+
+
+func has_map_selection() -> bool:
+	return map_selection_pending and shop_completed and not map_offers.is_empty()
+
+
+func mark_shop_completed() -> void:
+	if not map_selection_pending:
+		return
+	shop_completed = true
+	save_game()
+
+
+func select_map(map_index: int, persist: bool = true) -> bool:
+	if not has_map_selection() or map_index < 0 or map_index >= map_offers.size():
+		return false
+	selected_map_offer = map_offers[map_index].duplicate(true)
+	map_selection_pending = false
+	shop_completed = false
+	if persist:
+		save_game()
+	return true
+
+
+func currency_amount(base_amount: int) -> int:
+	var bonus := int(selected_map_offer.get("currency_bonus_percent", 0))
+	return maxi(0, roundi(float(base_amount) * (1.0 + float(bonus) / 100.0)))
 
 
 func build_gate_rows() -> Array[Dictionary]:
@@ -140,6 +232,7 @@ func _random_row(distance: float, rng: RandomNumberGenerator) -> Dictionary:
 func begin_shop() -> void:
 	shop_refresh_count = 0
 	shop_free_refreshes = game_config.shop_free_refreshes
+	shop_completed = false
 	_roll_shop_offers()
 	save_game()
 
